@@ -33,3 +33,34 @@ app.post("/v1/chat/completions", async (req, res) => {
 });
 
 app.listen(3000, () => console.log("Server running on port 3000"));
+const express = require("express");
+const bodyParser = require("body-parser");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(bodyParser.json());
+
+// Health check route (optional)
+app.get("/", (req, res) => {
+  res.send("OpenAI Proxy is running!");
+});
+
+// 👇 Your new /start-offer route
+app.post("/start-offer", async (req, res) => {
+  console.log("Received data:", req.body);  // Optional debug
+  try {
+    // Your assistant logic here
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Assistant error:", error);
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
