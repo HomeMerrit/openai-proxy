@@ -7,12 +7,18 @@ app.use(express.json());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// Main assistant workflow route
+const checkResponse = async (res) => {
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`API error ${res.status}: ${res.statusText} — ${errorText}`);
+  }
+  return res.json();
+};
+
 app.post("/start-offer", async (req, res) => {
   const { message, bot_type } = req.body;
 
   try {
-    // 1. Validate inputs
     if (!bot_type || !message) {
       return res.status(400).json({ error: "Missing 'bot_type' or 'message' in request body." });
     }
@@ -22,7 +28,7 @@ app.post("/start-offer", async (req, res) => {
       return res.status(400).json({ error: `Invalid bot_type '${bot_type}' - no matching ASSISTANT_ID found.` });
     }
 
-    // 2. Create a thread
+    // 1. Create a thread
     const threadResp = await fetch("https://api.openai.com/v1/threads", {
       method: "POST",
       headers: {
@@ -30,12 +36,11 @@ app.post("/start-offer", async (req, res) => {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
     });
-
-    const threadData = await threadResp.json();
+    const threadData = await checkResponse(threadResp);
     const thread_id = threadData.id;
 
-    // 3. Add user message to the thread
-    await fetch(`https://api.openai.com/v1/threads/${thread_id}/messages`, {
+    // 2. Add user message to the thread
+    const messageResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -46,8 +51,9 @@ app.post("/start-offer", async (req, res) => {
         content: message,
       }),
     });
+    await checkResponse(messageResp);
 
-    // 4. Run the assistant
+    // 3. Run the assistant
     const runResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/runs`, {
       method: "POST",
       headers: {
@@ -58,45 +64,42 @@ app.post("/start-offer", async (req, res) => {
         assistant_id: ASSISTANT_ID,
       }),
     });
-
-    const runData = await runResp.json();
+    const runData = await checkResponse(runResp);
     const run_id = runData.id;
 
-    // 5. Poll until run completes
+    // 4. Poll until run completes
     let runStatus = "in_progress";
     while (runStatus === "in_progress" || runStatus === "queued") {
-      await new Promise((resolve) => setTimeout(resolve, 1500)); // wait 1.5s
-
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       const statusResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/runs/${run_id}`, {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
       });
-
-      const statusData = await statusResp.json();
+      const statusData = await checkResponse(statusResp);
       runStatus = statusData.status;
     }
 
-    // 6. Get the assistant's final response
+    // 5. Get final response
     const messagesResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/messages`, {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
     });
-
-    const messagesData = await messagesResp.json();
+    const messagesData = await checkResponse(messagesResp);
     const lastMessage = messagesData.data.find((msg) => msg.role === "assistant");
 
     return res.status(200).json({
       response: lastMessage?.content?.[0]?.text?.value || "No assistant response.",
     });
   } catch (err) {
-    console.error("Error:", err);
-    return res.status(500).json({ error: "Internal server error", details: err.message });
+    console.error("🔥 Error caught in handler:", err);
+    return res.status(500).json({
+      error: "Internal server error",
+      details: err.message,
+    });
   }
 });
 
-// Health check
 app.get("/", (req, res) => res.send("OpenAI Assistant Proxy is running"));
-
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
