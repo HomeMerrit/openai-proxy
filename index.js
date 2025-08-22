@@ -17,7 +17,7 @@ app.use((req, res, next) => {
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// OpenAI Proxy Route
+// OpenAI Proxy Route for generic completions
 app.post("/v1/chat/completions", async (req, res) => {
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -41,16 +41,29 @@ app.get("/", (req, res) => {
   res.send("OpenAI Proxy is running!");
 });
 
-// Your custom /start-offer route
+// ✅ Actual /start-offer route for Zapier POST
 app.post("/start-offer", async (req, res) => {
-  console.log("Received data:", req.body);
-  try {
-    // Your assistant logic here
+  const { model, temperature, messages } = req.body;
 
-    return res.status(200).json({ success: true });
+  try {
+    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature,
+        messages,
+      }),
+    });
+
+    const data = await openaiResponse.json();
+    return res.status(200).json(data); // 👈 return GPT response to Zapier
   } catch (error) {
-    console.error("Assistant error:", error);
-    return res.status(500).json({ error: "Something went wrong" });
+    console.error("OpenAI error:", error);
+    return res.status(500).json({ error: "OpenAI request failed." });
   }
 });
 
