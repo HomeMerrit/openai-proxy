@@ -1,13 +1,15 @@
 import express from "express";
 import fetch from "node-fetch";
+import bodyParser from "body-parser";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 // Middleware
-app.use(express.json());
+app.use(bodyParser.json());
 
-// Optional CORS setup
+// Optional: CORS setup
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST");
@@ -15,56 +17,49 @@ app.use((req, res, next) => {
   next();
 });
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// Health check route
+app.get("/", (req, res) => {
+  res.send("✅ OpenAI Proxy is running!");
+});
 
-// OpenAI Proxy Route for generic completions
-app.post("/v1/chat/completions", async (req, res) => {
+// MAIN: Proxy to OpenAI
+app.post("/start-offer", async (req, res) => {
+  const { model, messages, temperature = 0.7 } = req.body;
+
+  if (!model || !messages) {
+    return res.status(400).json({
+      error: "Missing required fields: model and messages are required.",
+    });
+  }
+
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
         Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify(req.body),
-    });
-
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (err) {
-    res.status(500).json({ error: "Server error", details: err.message });
-  }
-});
-
-// Health check
-app.get("/", (req, res) => {
-  res.send("OpenAI Proxy is running!");
-});
-
-// ✅ Actual /start-offer route for Zapier POST
-app.post("/start-offer", async (req, res) => {
-  const { model, temperature, messages } = req.body;
-
-  try {
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
         model,
-        temperature,
         messages,
+        temperature,
       }),
     });
 
-    const data = await openaiResponse.json();
-    return res.status(200).json(data); // 👈 return GPT response to Zapier
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+
+    res.json(data);
   } catch (error) {
-    console.error("OpenAI error:", error);
-    return res.status(500).json({ error: "OpenAI request failed." });
+    console.error("OpenAI Proxy Error:", error);
+    res.status(500).json({ error: "Internal server error", details: error.message });
   }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
