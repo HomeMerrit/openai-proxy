@@ -8,7 +8,6 @@ const app = express();
 app.use(bodyParser.json());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const ASSISTANT_ID = process.env.ASSISTANT_ID;
 
 async function checkResponse(response) {
   if (!response.ok) {
@@ -16,6 +15,15 @@ async function checkResponse(response) {
     throw new Error(`API call failed: ${response.status} ${text}`);
   }
   return response.json();
+}
+
+function getAssistantId(botType) {
+  const key = `${botType}_BOT`.toUpperCase();
+  const assistantId = process.env[key];
+  if (!assistantId) {
+    throw new Error(`No assistant found for bot type: ${botType}`);
+  }
+  return assistantId;
 }
 
 app.post("/start-offer", async (req, res) => {
@@ -26,6 +34,8 @@ app.post("/start-offer", async (req, res) => {
     if (!userMessage) {
       return res.status(400).json({ error: "Missing `message` in request body." });
     }
+
+    const assistant_id = getAssistantId(botType);
 
     // 1. Create Thread
     const threadResp = await fetch("https://api.openai.com/v1/threads", {
@@ -63,7 +73,7 @@ app.post("/start-offer", async (req, res) => {
         "OpenAI-Beta": "assistants=v2"
       },
       body: JSON.stringify({
-        assistant_id: ASSISTANT_ID,
+        assistant_id,
         instructions: `You are running in ${botType} mode.`,
       }),
     });
