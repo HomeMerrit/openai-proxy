@@ -2,6 +2,9 @@ import express from "express";
 import fetch from "node-fetch";
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
 app.use(express.json());
 
 // Optional CORS setup
@@ -14,6 +17,7 @@ app.use((req, res, next) => {
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
+// OpenAI Proxy Route
 app.post("/v1/chat/completions", async (req, res) => {
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -32,24 +36,14 @@ app.post("/v1/chat/completions", async (req, res) => {
   }
 });
 
-app.listen(3000, () => console.log("Server running on port 3000"));
-const express = require("express");
-const bodyParser = require("body-parser");
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middleware
-app.use(bodyParser.json());
-
-// Health check route (optional)
+// Health check
 app.get("/", (req, res) => {
   res.send("OpenAI Proxy is running!");
 });
 
-// 👇 Your new /start-offer route
+// Your custom /start-offer route
 app.post("/start-offer", async (req, res) => {
-  console.log("Received data:", req.body);  // Optional debug
+  console.log("Received data:", req.body);
   try {
     // Your assistant logic here
 
@@ -60,7 +54,4 @@ app.post("/start-offer", async (req, res) => {
   }
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
