@@ -1,86 +1,93 @@
 import express from "express";
+import bodyParser from "body-parser";
 import fetch from "node-fetch";
+import dotenv from "dotenv";
 
+dotenv.config();
 const app = express();
-const PORT = process.env.PORT || 3000;
-app.use(express.json());
+app.use(bodyParser.json());
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const ASSISTANT_ID = process.env.ASSISTANT_ID;
 
-const checkResponse = async (res) => {
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`API error ${res.status}: ${res.statusText} — ${errorText}`);
+async function checkResponse(response) {
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`API call failed: ${response.status} ${text}`);
   }
-  return res.json();
-};
+  return response.json();
+}
 
 app.post("/start-offer", async (req, res) => {
-  const { message, bot_type } = req.body;
-
   try {
-    if (!bot_type || !message) {
-      return res.status(400).json({ error: "Missing 'bot_type' or 'message' in request body." });
+    const userMessage = req.body.message;
+    const botType = req.body.bot_type || "DEFAULT";
+
+    if (!userMessage) {
+      return res.status(400).json({ error: "Missing `message` in request body." });
     }
 
-    const ASSISTANT_ID = process.env[bot_type];
-    if (!ASSISTANT_ID) {
-      return res.status(400).json({ error: `Invalid bot_type '${bot_type}' - no matching ASSISTANT_ID found.` });
-    }
-
-    // 1. Create a thread
+    // 1. Create Thread
     const threadResp = await fetch("https://api.openai.com/v1/threads", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
         Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
       },
     });
     const threadData = await checkResponse(threadResp);
     const thread_id = threadData.id;
 
-    // 2. Add user message to the thread
+    // 2. Add Message to Thread
     const messageResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/messages`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
         Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         role: "user",
-        content: message,
+        content: userMessage,
       }),
     });
     await checkResponse(messageResp);
 
-    // 3. Run the assistant
+    // 3. Run the Assistant
     const runResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/runs`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
         Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         assistant_id: ASSISTANT_ID,
+        instructions: `You are running in ${botType} mode.`,
       }),
     });
     const runData = await checkResponse(runResp);
     const run_id = runData.id;
 
-    // 4. Poll until run completes
-    let runStatus = "in_progress";
-    while (runStatus === "in_progress" || runStatus === "queued") {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      const statusResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/runs/${run_id}`, {
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-      });
+    // 4. Poll until status is 'completed'
+    let runStatus = runData.status;
+    while (runStatus !== "completed" && runStatus !== "failed" && runStatus !== "cancelled") {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const statusResp = await fetch(
+        `https://api.openai.com/v1/threads/${thread_id}/runs/${run_id}`,
+        {
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+        }
+      );
       const statusData = await checkResponse(statusResp);
       runStatus = statusData.status;
     }
 
-    // 5. Get final response
+    if (runStatus !== "completed") {
+      return res.status(500).json({ error: `Run failed with status: ${runStatus}` });
+    }
+
+    // 5. Get the latest assistant message
     const messagesResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/messages`, {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -88,21 +95,21 @@ app.post("/start-offer", async (req, res) => {
     });
     const messagesData = await checkResponse(messagesResp);
 
-    const lastMessage = Array.isArray(messagesData?.data)
-      ? messagesData.data.find((msg) => msg.role === "assistant")
-      : null;
+    const lastMessage =
+      Array.isArray(messagesData?.data) && messagesData.data.length > 0
+        ? messagesData.data.find((msg) => msg.role === "assistant")
+        : null;
 
-    const responseText = lastMessage?.content?.[0]?.text?.value || "No assistant response.";
-
-    return res.status(200).json({ response: responseText });
-  } catch (err) {
-    console.error("🔥 Error caught in handler:", err);
-    return res.status(500).json({
-      error: "Internal server error",
-      details: err.message,
+    return res.status(200).json({
+      response: lastMessage?.content?.[0]?.text?.value || "No assistant response.",
     });
+  } catch (err) {
+    console.error("🔥 Error:", err);
+    return res.status(500).json({ error: err.message || "Internal Server Error" });
   }
 });
 
-app.get("/", (req, res) => res.send("OpenAI Assistant Proxy is running"));
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+});
