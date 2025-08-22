@@ -1,65 +1,93 @@
 import express from "express";
 import fetch from "node-fetch";
-import bodyParser from "body-parser";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+app.use(express.json());
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const ASSISTANT_ID = process.env.ASSISTANT_ID; // from https://platform.openai.com/assistants
 
-// Middleware
-app.use(bodyParser.json());
-
-// Optional: CORS setup
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  next();
-});
-
-// Health check route
-app.get("/", (req, res) => {
-  res.send("✅ OpenAI Proxy is running!");
-});
-
-// MAIN: Proxy to OpenAI
+// Main assistant workflow route
 app.post("/start-offer", async (req, res) => {
-  const { model, messages, temperature = 0.7 } = req.body;
-
-  if (!model || !messages) {
-    return res.status(400).json({
-      error: "Missing required fields: model and messages are required.",
-    });
-  }
+  const { message } = req.body;
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Step 1: Create a thread
+    const threadResp = await fetch("https://api.openai.com/v1/threads", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+    });
+
+    const threadData = await threadResp.json();
+    const thread_id = threadData.id;
+
+    // Step 2: Add message to thread
+    await fetch(`https://api.openai.com/v1/threads/${thread_id}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model,
-        messages,
-        temperature,
+        role: "user",
+        content: message,
       }),
     });
 
-    const data = await response.json();
+    // Step 3: Run the assistant
+    const runResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/runs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        assistant_id: ASSISTANT_ID,
+      }),
+    });
 
-    if (!response.ok) {
-      return res.status(response.status).json(data);
+    const runData = await runResp.json();
+    const run_id = runData.id;
+
+    // Step 4: Poll until run completes
+    let runStatus = "in_progress";
+    while (runStatus === "in_progress" || runStatus === "queued") {
+      await new Promise((resolve) => setTimeout(resolve, 1500)); // wait 1.5s
+
+      const statusResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/runs/${run_id}`, {
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+      });
+
+      const statusData = await statusResp.json();
+      runStatus = statusData.status;
     }
 
-    res.json(data);
-  } catch (error) {
-    console.error("OpenAI Proxy Error:", error);
-    res.status(500).json({ error: "Internal server error", details: error.message });
+    // Step 5: Get final message
+    const messagesResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/messages`, {
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+    });
+
+    const messagesData = await messagesResp.json();
+    const lastMessage = messagesData.data.find((msg) => msg.role === "assistant");
+
+    return res.status(200).json({
+      response: lastMessage?.content?.[0]?.text?.value || "No assistant response.",
+    });
+  } catch (err) {
+    console.error("Error:", err);
+    return res.status(500).json({ error: "Internal server error", details: err.message });
   }
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+// Health check
+app.get("/", (req, res) => res.send("OpenAI Assistant Proxy is running"));
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
