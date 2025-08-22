@@ -87,11 +87,14 @@ app.post("/start-offer", async (req, res) => {
       },
     });
     const messagesData = await checkResponse(messagesResp);
-    const lastMessage = messagesData.data.find((msg) => msg.role === "assistant");
 
-    return res.status(200).json({
-      response: lastMessage?.content?.[0]?.text?.value || "No assistant response.",
-    });
+    const lastMessage = Array.isArray(messagesData?.data)
+      ? messagesData.data.find((msg) => msg.role === "assistant")
+      : null;
+
+    const responseText = lastMessage?.content?.[0]?.text?.value || "No assistant response.";
+
+    return res.status(200).json({ response: responseText });
   } catch (err) {
     console.error("🔥 Error caught in handler:", err);
     return res.status(500).json({
