@@ -33,7 +33,8 @@ app.post("/start-offer", async (req, res) => {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
-      },
+        "OpenAI-Beta": "assistants=v2"
+      }
     });
     const threadData = await checkResponse(threadResp);
     const thread_id = threadData.id;
@@ -44,6 +45,7 @@ app.post("/start-offer", async (req, res) => {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
+        "OpenAI-Beta": "assistants=v2"
       },
       body: JSON.stringify({
         role: "user",
@@ -58,6 +60,7 @@ app.post("/start-offer", async (req, res) => {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
+        "OpenAI-Beta": "assistants=v2"
       },
       body: JSON.stringify({
         assistant_id: ASSISTANT_ID,
@@ -76,6 +79,7 @@ app.post("/start-offer", async (req, res) => {
         {
           headers: {
             Authorization: `Bearer ${OPENAI_API_KEY}`,
+            "OpenAI-Beta": "assistants=v2"
           },
         }
       );
@@ -91,6 +95,7 @@ app.post("/start-offer", async (req, res) => {
     const messagesResp = await fetch(`https://api.openai.com/v1/threads/${thread_id}/messages`, {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "OpenAI-Beta": "assistants=v2"
       },
     });
     const messagesData = await checkResponse(messagesResp);
